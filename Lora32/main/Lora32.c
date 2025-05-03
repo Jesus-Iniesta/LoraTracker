@@ -10,7 +10,7 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "lora.h"
-#include "esp_http_server.h"
+#include "esp_http_client.h"
 #include "protocol_examples_common.h"
 
 #define GPS_UART_NUM UART_NUM_2
@@ -18,6 +18,9 @@
 #define GPS_RXD_PIN 13
 #define GPS_BUF_SIZE 1024
 #define MESSAGE_LEN 240
+
+// Define el rol del dispositivo: TRANSMITTER o RECEIVER
+#define DEVICE_ROLE_RECEIVER 0 // Cambiar a 0 para el transmisor
 
 static const char *TAG = "GPS";
 SSD1306_t screen;
@@ -53,7 +56,37 @@ void send_msg(char *msg, int size)
     screen_print("Send Messsage",2);
     vTaskDelay(pdMS_TO_TICKS(50)); // Reducir el tiempo de espera
 }
+#if DEVICE_ROLE_RECEIVER
+void send_coordinates_to_server(float lat, float lon)
+{
+    char post_data[128];
+    snprintf(post_data, sizeof(post_data), "latitude=%.6f&longitude=%.6f", lat, lon);
 
+    esp_http_client_config_t config = {
+        .url = "http://192.168.137.1:5000/",
+        .method = HTTP_METHOD_POST,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
+                 esp_http_client_get_status_code(client),
+                 esp_http_client_get_content_length(client));
+    }
+    else
+    {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+#endif
 
 void task_rx(void *p)
 {
@@ -71,51 +104,47 @@ void task_rx(void *p)
                 msg[len] = 0;
 
                 printf("Receive packet: %s, len: %d\n", msg, len);
-    
-    
-                // Suponiendo que el mensaje tiene el formato "12.345678,98.765432"
+
                 char *comma_ptr = strchr((char *)msg, ','); // Buscar la coma que separa latitud y longitud
-    
+
                 if (comma_ptr)
                 {
-                    // Extraer latitud y longitud
-                    *comma_ptr = '\0'; // Reemplazar la coma con un terminador nulo para separar las cadenas
-                    char *lat_ptr = (char *)msg; // Latitud está antes de la coma
-                    char *lon_ptr = comma_ptr + 1; // Longitud está después de la coma
-    
-                    // Convertir las cadenas a float
+                    *comma_ptr = '\0';
+                    char *lat_ptr = (char *)msg;
+                    char *lon_ptr = comma_ptr + 1;
+
                     float lat = atof(lat_ptr);
                     float lon = atof(lon_ptr);
-    
-                    // Crear un mensaje compacto (si es necesario reenviar)
+
                     char message[64];
                     snprintf(message, sizeof(message), "%.6f,%.6f", lat, lon);
-    
-                    // Imprimir en la pantalla LCD
+
                     screen_print("Lat:", 2);
-                    screen_print(lat_ptr, 4); // Página 2 para Latitud
+                    screen_print(lat_ptr, 4);
                     screen_print("Lon:", 5);
-                    screen_print(lon_ptr, 6); // Página 3 para Longitud
-    
-                    // Mostrar información adicional
+                    screen_print(lon_ptr, 6);
+
                     rssi = lora_packet_rssi();
                     sprintf(rssi_str, "RSSI: %d dBm", rssi);
                     ESP_LOGI(TAG, "%s", rssi_str);
                     sprintf(packets_count, "Count: %d", packets);
                     ESP_LOGI(TAG, "%s", packets_count);
-                }  
-            }
-            else
-            {
-                // Si el formato no es válido, mostrar el mensaje completo
-                screen_print("Formato invalido", 2);
-                screen_print((char *)msg, 3);
-                screen_clear();
-            }
 
-            packets++;
+#if DEVICE_ROLE_RECEIVER
+                    send_coordinates_to_server(lat, lon);
+#endif
+                }
+                else
+                {
+                    screen_print("Formato invalido", 2);
+                    screen_print((char *)msg, 3);
+                    screen_clear();
+                }
+
+                packets++;
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(10)); // Reducir el tiempo de espera
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -126,7 +155,7 @@ void lora_config_init()
     lora_set_frequency(433e6);
     lora_set_spreading_factor(10); // Aumentar el SF para mayor alcance
     lora_set_bandwidth(62.5e3); // Reducir el ancho de banda para mayor sensibilidad
-    lora_set_preamble_length(15); // Configurar un preámbulo más largo
+    lora_set_preamble_length(15);
     lora_set_tx_power(17); // Configurar la potencia máxima permitida
     lora_enable_crc();
     xTaskCreate(&task_rx, "task_rx", 4096, NULL, 5, &xHandleRXTask);
@@ -258,6 +287,21 @@ void uart_setup(uart_port_t uart_num, const uart_config_t *uart_config, int tx_p
 
 void app_main(void)
 {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+#if DEVICE_ROLE_RECEIVER
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(example_connect());
+    printf("Conectado a la red Wi-Fi...\n");
+#endif
+
     uart_config_t uart_config = uart_config_init(9600, UART_DATA_8_BITS, 
         UART_PARITY_DISABLE, UART_STOP_BITS_1, UART_HW_FLOWCTRL_DISABLE);
 
@@ -266,10 +310,7 @@ void app_main(void)
     screen_init();
     screen_clear();
     lora_config_init();
-    nvs_flash_init();
-    esp_netif_init();
-    esp_event_loop_create_default();
-    example_connect();
-
+    
+    // Crear la tarea para procesar datos GPS
     xTaskCreate(gps_task, "gps_task", 4096, NULL, 10, NULL);
 }

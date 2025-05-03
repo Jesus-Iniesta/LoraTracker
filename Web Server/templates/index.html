@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracker</title>
+</head>
+<body>
+    <h1>Datos recibidos</h1>
+    <pre id="json-data">Cargando datos...</pre>
+
+    <script>
+        // Obtener los datos en formato JSON desde el servidor
+        fetch('/data')
+            .then(response => response.json())
+            .then(data => {
+                // Mostrar los datos en el elemento <pre>
+                document.getElementById('json-data').textContent = JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+                console.error('Error al obtener los datos:', error);
+                document.getElementById('json-data').textContent = 'Error al cargar los datos.';
+            });
+    </script>
+</body>
