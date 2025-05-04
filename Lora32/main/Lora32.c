@@ -49,12 +49,13 @@ void screen_print(char *message, int page)
 
 void send_msg(char *msg, int size)
 {
+    vTaskDelay(pdMS_TO_TICKS(10000)); 
     printf("Send packet: %s\n", msg);
     vTaskSuspend(xHandleRXTask);
     lora_send_packet((uint8_t *) msg, size);
     vTaskResume(xHandleRXTask);
     screen_print("Send Messsage",2);
-    vTaskDelay(pdMS_TO_TICKS(50)); // Reducir el tiempo de espera
+    vTaskDelay(5); 
 }
 #if DEVICE_ROLE_RECEIVER
 void send_coordinates_to_server(float lat, float lon)
@@ -144,7 +145,7 @@ void task_rx(void *p)
                 packets++;
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
