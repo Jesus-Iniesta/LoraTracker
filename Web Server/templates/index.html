@@ -1,25 +1,118 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tracker</title>
+    <!-- Agregar los enlaces de Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <title>Lora Chat</title>
 </head>
-<body>
-    <h1>Datos recibidos</h1>
-    <pre id="json-data">Cargando datos...</pre>
 
+<body>
+    <div class="container">
+        <h1>Proyecto LoRa</h1>
+        <div class="main">
+            <div id="map"></div>
+            <div class="panel">
+                <h2>Encontrar</h2>
+                <button onclick="calcularDistancia()">Encontrar</button>
+                <div class="coords">
+                    <p>Coordenadas:<br>{{received_data['lat']}}, {{received_data['lon']}}</p>
+                    <p>Coordenadas:<br>19.3682, -99.5487</p>
+                </div>
+                <p><strong>Distancia: </strong><span id="distancia">15.3 km</p>
+            </div>
+        </div>
+    </div>
+    <style>
+        :root {
+            --primary: #0a1626;
+            --secondary: #141d2c;
+            --third: #20396f;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .container {
+            padding: 20px;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .main {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        #map {
+            width: 800px;
+            height: 600px;
+            border-radius: 10px;
+        }
+
+        .panel {
+            background-color: var(--secondary);
+            padding: 20px;
+            border-radius: 10px;
+            width: 350px;
+            text-align: left;
+        }
+
+        .panel h2 {
+            margin-top: 0;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: var(--third);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: var(--third);
+        }
+
+        .coords p {
+            margin: 5px 0;
+        }
+    </style>
     <script>
-        // Obtener los datos en formato JSON desde el servidor
-        fetch('/data')
-            .then(response => response.json())
-            .then(data => {
-                // Mostrar los datos en el elemento <pre>
-                document.getElementById('json-data').textContent = JSON.stringify(data, null, 2);
-            })
-            .catch(error => {
-                console.error('Error al obtener los datos:', error);
-                document.getElementById('json-data').textContent = 'Error al cargar los datos.';
-            });
+        const coordenada1 = [19.285454, -99.684898];
+        const coordenada2 = [19.28316719141915, -99.67661651861];
+
+        const map = L.map('map').setView([19.285454, -99.684898], 15);
+
+        // Mapa base
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // Marcadores
+        L.marker(coordenada1).addTo(map).bindPopup('Dispositivo 1');
+        L.marker(coordenada2).addTo(map).bindPopup('Dispositivo 2');
+
+        // Función para calcular distancia
+        function calcularDistancia() {
+            const distancia = map.distance(coordenada1, coordenada2) / 1000; // km
+            document.getElementById('distancia').innerText = distancia.toFixed(1) + ' km';
+        }
     </script>
 </body>
+
+</html>
