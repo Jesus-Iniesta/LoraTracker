@@ -14,9 +14,9 @@
 #include "protocol_examples_common.h"
 
 //Pamela (Documentar los pines del microcontrolador)
-#define GPS_UART_NUM UART_NUM_2
-#define GPS_TXD_PIN 12
-#define GPS_RXD_PIN 13
+#define GPS_UART_NUM UART_NUM_2 //Utilizamos el tercer puerto del ESP32, ya que no afecta la consola serial 
+#define GPS_TXD_PIN 12 //Es nuestra entrada al microcontrolador, el cual recibe los datos desde el pin TX del modulo GPS
+#define GPS_RXD_PIN 13 // Es nuestra salida del microcontrolador, el cual envia los datos al pin RX del modulo GPS  
 #define GPS_BUF_SIZE 1024 //tamaño de memoria del gps 1024 bytes
 #define MESSAGE_LEN 240  // Tamaño maximo de un mensaje 240 bytes
 
