@@ -1,27 +1,36 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///coordenadas.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
-# Variable global para almacenar los datos
-received_data = {}
+class Coordenada(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    latitud = db.Column(db.Float, nullable=False)
+    longitud = db.Column(db.Float, nullable=False)
 
-# Ruta para manejar solicitudes GET y POST
+with app.app_context():
+    db.create_all()
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global received_data
     if request.method == 'POST':
-        # Procesar datos enviados por POST
-        received_data = request.form.to_dict()
-        print(f"Datos recibidos por POST: {received_data}")
-    elif request.method == 'GET':
-        print(f"Datos recibidos por GET: {request.args.to_dict()}")
-    return render_template('index.html', data=received_data)
+        lat = request.form.get('latitud') or request.form.get('latitude')
+        lon = request.form.get('longitud') or request.form.get('longitude')
+        if lat and lon:
+            nueva_coordenada = Coordenada(latitud=float(lat), longitud=float(lon))
+            db.session.add(nueva_coordenada)
+            db.session.commit()
+        return 'OK', 200
+    return render_template('index.html')
 
-# Ruta para obtener los datos en formato JSON
 @app.route('/data', methods=['GET'])
 def get_data():
-    return jsonify(received_data)
-  
+    coordenadas = Coordenada.query.all()
+    data = [{'latitud': c.latitud, 'longitud': c.longitud} for c in coordenadas]
+    return jsonify(data)
+
 if __name__ == '__main__':
-    # Ejecutar el servidor en la IP estática y puerto 5000
     app.run(host='192.168.137.1', port=5000)

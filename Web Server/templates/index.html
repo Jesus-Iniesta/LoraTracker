@@ -4,10 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Agregar los enlaces de Leaflet -->
+    <!-- Leaflet CSS y JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <title>Lora Chat</title>
+    <title>Lora Tracker</title>
 </head>
 
 <body>
@@ -16,13 +16,11 @@
         <div class="main">
             <div id="map"></div>
             <div class="panel">
-                <h2>Encontrar</h2>
-                <button onclick="calcularDistancia()">Encontrar</button>
-                <div class="coords">
-                    <p>Coordenadas:<br>{{received_data['lat']}}, {{received_data['lon']}}</p>
-                    <p>Coordenadas:<br>19.3682, -99.5487</p>
+                <h2>Ubicaciones</h2>
+                <div class="coords" id="coords-list">
+                    <!-- Coordenadas aquí -->
                 </div>
-                <p><strong>Distancia: </strong><span id="distancia">15.3 km</p>
+                <p><strong>Distancia: </strong><span id="distancia">N/A</span></p>
             </div>
         </div>
     </div>
@@ -93,25 +91,46 @@
         }
     </style>
     <script>
-        const coordenada1 = [19.285454, -99.684898];
-        const coordenada2 = [19.28316719141915, -99.67661651861];
+        // Coordenada fija de tu computadora (modifica estos valores según tu ubicación)
+        const miCoordenada = [19.338517687390098, -99.57106386203036]; // Ejemplo: UNAM
 
-        const map = L.map('map').setView([19.285454, -99.684898], 15);
+        // Inicializa el mapa centrado en tu computadora
+        const map = L.map('map').setView(miCoordenada, 15);
 
         // Mapa base
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        // Marcadores
-        L.marker(coordenada1).addTo(map).bindPopup('Dispositivo 1');
-        L.marker(coordenada2).addTo(map).bindPopup('Dispositivo 2');
+        // Muestra marcador de tu computadora
+        const markerPC = L.marker(miCoordenada).addTo(map).bindPopup('Mi Computadora');
 
-        // Función para calcular distancia
-        function calcularDistancia() {
-            const distancia = map.distance(coordenada1, coordenada2) / 1000; // km
-            document.getElementById('distancia').innerText = distancia.toFixed(1) + ' km';
-        }
+        // Obtener la última coordenada recibida por HTTP y mostrarla
+        fetch('/data')
+            .then(response => response.json())
+            .then(data => {
+                let coordsHTML = '';
+                // Mostrar solo la última coordenada recibida
+                if (data.length > 0) {
+                    const ultima = data[data.length - 1];
+                    const markerHTTP = L.marker([ultima.latitud, ultima.longitud]).addTo(map).bindPopup('Dispositivo Remoto');
+                    coordsHTML += `<p><strong>Mi computadora:</strong> ${miCoordenada[0]}, ${miCoordenada[1]}</p>`;
+                    coordsHTML += `<p><strong>Dispositivo Remoto:</strong> ${ultima.latitud}, ${ultima.longitud}</p>`;
+                    // Centra el mapa entre los dos puntos
+                    const group = new L.featureGroup([markerPC, markerHTTP]);
+                    map.fitBounds(group.getBounds().pad(0.3));
+                    // Calcula distancia
+                    const puntoA = L.latLng(miCoordenada[0], miCoordenada[1]);
+                    const puntoB = L.latLng(ultima.latitud, ultima.longitud);
+                    const distancia = map.distance(puntoA, puntoB) / 1000; // km
+                    document.getElementById('distancia').innerText = distancia.toFixed(1) + ' km';
+                } else {
+                    coordsHTML += `<p><strong>Mi computadora:</strong> ${miCoordenada[0]}, ${miCoordenada[1]}</p>`;
+                    coordsHTML += `<p><strong>Dispositivo Remoto:</strong> Sin datos</p>`;
+                    document.getElementById('distancia').innerText = 'N/A';
+                }
+                document.getElementById('coords-list').innerHTML = coordsHTML;
+            });
     </script>
 </body>
 
