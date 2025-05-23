@@ -12,20 +12,20 @@
 #include "lora.h"
 #include "esp_http_client.h"
 #include "protocol_examples_common.h"
+#include "esp_sleep.h"
 
-//Pamela (Documentar los pines del microcontrolador)
+// Pamela (Documentar los pines del microcontrolador)
 #define GPS_UART_NUM UART_NUM_2
 #define GPS_TXD_PIN 12
 #define GPS_RXD_PIN 13
-#define GPS_BUF_SIZE 1024 //tamaño de memoria del gps 1024 bytes
-#define MESSAGE_LEN 240  // Tamaño maximo de un mensaje 240 bytes
+#define GPS_BUF_SIZE 1024 // tamaño de memoria del gps 1024 bytes
+#define MESSAGE_LEN 240   // Tamaño maximo de un mensaje 240 bytes
 
-//jesus 
-// Define el rol del dispositivo: TRANSMITTER o RECEIVER
+// jesus
+//  Define el rol del dispositivo: TRANSMITTER o RECEIVER
 #define DEVICE_ROLE_RECEIVER 0 // Cambiar a 0 para el transmisor
 
-
-//pamela (Docuemntar el uso de cada variable)
+// pamela (Docuemntar el uso de cada variable)
 static const char *TAG = "GPS";
 SSD1306_t screen;
 TaskHandle_t xHandleRXTask;
@@ -33,7 +33,15 @@ int packets = 0;
 int rssi = 0;
 uint8_t msg[MESSAGE_LEN];
 
-//Aram (Junto con la libreria /components/ssd1306)
+// Rutina para poner en bajo consumo el esp32
+void go_to_sleep(uint32_t seconds)
+{
+    esp_sleep_enable_timer_wakeup(10 * 1000000); // 10 segundos (ajusta según necesidad)
+    printf("Entrando en deep sleep por %ld segundos...\n", seconds);
+    esp_deep_sleep(1000000LL * seconds); // Tiempo en microsegundos
+}
+
+// Aram (Junto con la libreria /components/ssd1306)
 void screen_init()
 {
     i2c_master_init(&screen, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
@@ -41,32 +49,31 @@ void screen_init()
     ssd1306_contrast(&screen, 0xFF);
 }
 
-//Aram
+// Aram
 void screen_clear()
 {
     ssd1306_clear_screen(&screen, false);
 }
 
-//Aram
+// Aram
 void screen_print(char *message, int page)
 {
     ssd1306_clear_line(&screen, page, false);
     ssd1306_display_text(&screen, page, message, strlen(message), false);
 }
 
-//Pamela (Junto con la libreria /components/lora/include/lora.h y lora.c)
+// Pamela (Junto con la libreria /components/lora/include/lora.h y lora.c)
 void send_msg(char *msg, int size)
 {
-    vTaskDelay(pdMS_TO_TICKS(10000)); 
+    vTaskDelay(pdMS_TO_TICKS(10000));
     printf("Send packet: %s\n", msg);
     vTaskSuspend(xHandleRXTask);
-    lora_send_packet((uint8_t *) msg, size);
+    lora_send_packet((uint8_t *)msg, size);
     vTaskResume(xHandleRXTask);
-    screen_print("Send Messsage",2);
-    vTaskDelay(5); 
+    vTaskDelay(5);
 }
 
-//Jesus
+// Jesus
 #if DEVICE_ROLE_RECEIVER
 void send_coordinates_to_server(float lat, float lon)
 {
@@ -99,12 +106,14 @@ void send_coordinates_to_server(float lat, float lon)
 }
 #endif
 
-//Jesus
+// Jesus
 void task_rx(void *p)
 {
     int len;
+#if DEVICE_ROLE_RECEIVER
     char packets_count[64];
     char rssi_str[64];
+#endif
     for (;;)
     {
         lora_receive();
@@ -130,7 +139,7 @@ void task_rx(void *p)
 
                     char message[64];
                     snprintf(message, sizeof(message), "%.6f,%.6f", lat, lon);
-
+#if DEVICE_ROLE_RECEIVER
                     screen_print("Lat:", 2);
                     screen_print(lat_ptr, 4);
                     screen_print("Lon:", 5);
@@ -142,15 +151,16 @@ void task_rx(void *p)
                     sprintf(packets_count, "Count: %d", packets);
                     ESP_LOGI(TAG, "%s", packets_count);
 
-#if DEVICE_ROLE_RECEIVER
                     send_coordinates_to_server(lat, lon);
 #endif
                 }
                 else
                 {
+#if DEVICE_ROLE_RECEIVER
                     screen_print("Formato invalido", 2);
                     screen_print((char *)msg, 3);
                     screen_clear();
+#endif
                 }
 
                 packets++;
@@ -159,24 +169,23 @@ void task_rx(void *p)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
-
-//Pamela (Junto con la libreria /components/lora/include/lora.h y lora.c)
+// Pamela (Junto con la libreria /components/lora/include/lora.h y lora.c)
 void lora_config_init()
 {
     printf("Lora config init\n");
     lora_init();
     lora_set_frequency(433e6);
     lora_set_spreading_factor(10); // Aumentar el SF para mayor alcance
-    lora_set_bandwidth(62.5e3); // Reducir el ancho de banda para mayor sensibilidad
+    lora_set_bandwidth(62.5e3);    // Reducir el ancho de banda para mayor sensibilidad
     lora_set_preamble_length(15);
     lora_set_tx_power(17); // Configurar la potencia máxima permitida
     lora_enable_crc();
     xTaskCreate(&task_rx, "task_rx", 4096, NULL, 5, &xHandleRXTask);
-    //xTaskCreate(&task_tx, "task_tx", 2048, NULL, 5, NULL);
+    // xTaskCreate(&task_tx, "task_tx", 2048, NULL, 5, NULL);
 }
 
-//Jesus
-// Función para convertir lat/lon NMEA (ddmm.mmmm) a decimal
+// Jesus
+//  Función para convertir lat/lon NMEA (ddmm.mmmm) a decimal
 float nmea_to_decimal(const char *nmea_coord, bool is_lat)
 {
     if (strlen(nmea_coord) < 4)
@@ -204,10 +213,9 @@ float nmea_to_decimal(const char *nmea_coord, bool is_lat)
     return deg + (min / 60.0);
 }
 
-//Aram
+// Aram
 void parse_nmea_sentence(const char *line)
 {
-    char packets_count[64];
     if (strstr(line, "$GPRMC") != NULL)
     {
         char buf[128];
@@ -247,20 +255,23 @@ void parse_nmea_sentence(const char *line)
 
             ESP_LOGI(TAG, "Coordenadas: Lat: %.6f, Lon: %.6f", lat, lon);
             ESP_LOGI(TAG, "Mapa: https://maps.google.com/?q=%.6f,%.6f", lat, lon);
-            
+
             // Enviar el mensaje usando LoRa
             char message[64];
             snprintf(message, sizeof(message), "%.6f,%.6f", lat, lon);
             send_msg(message, strlen(message));
-            sprintf(packets_count, "Count: %d", packets);
-            screen_print(packets_count, 4);
-            
+
+            // Pon el GPS en standby
+            const char standby_cmd[] = "$PMTK161,0*28\r\n";
+            uart_write_bytes(GPS_UART_NUM, standby_cmd, strlen(standby_cmd));
+
+            // Deep sleep
+            go_to_sleep(30); // 30 segundos
         }
-        packets++;
     }
 }
 
-//Pamela
+// Pamela
 void gps_task(void *arg)
 {
     uint8_t data[GPS_BUF_SIZE];
@@ -282,8 +293,8 @@ void gps_task(void *arg)
     }
 }
 
-//Jesus
-//Configurar el uart para gps
+// Jesus
+// Configurar el uart para gps
 uart_config_t uart_config_init(int baud_rate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits, uart_hw_flowcontrol_t flow_ctrl)
 {
     uart_config_t uart_config = {
@@ -291,13 +302,12 @@ uart_config_t uart_config_init(int baud_rate, uart_word_length_t data_bits, uart
         .data_bits = data_bits,
         .parity = parity,
         .stop_bits = stop_bits,
-        .flow_ctrl = flow_ctrl
-    };
+        .flow_ctrl = flow_ctrl};
     return uart_config;
 }
 
-//Jesus
-//Setup de el aurt
+// Jesus
+// Setup de el aurt
 void uart_setup(uart_port_t uart_num, const uart_config_t *uart_config, int tx_pin, int rx_pin, int buf_size)
 {
     uart_driver_install(uart_num, buf_size * 2, 0, 0, NULL, 0);
@@ -305,10 +315,9 @@ void uart_setup(uart_port_t uart_num, const uart_config_t *uart_config, int tx_p
     uart_set_pin(uart_num, tx_pin, rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 }
 
-
 void app_main(void)
 {
-    //Jesus
+    // Jesus
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
@@ -316,25 +325,26 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-//Aram
+// Aram
 #if DEVICE_ROLE_RECEIVER
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(example_connect());
     printf("Conectado a la red Wi-Fi...\n");
 #endif
-//Jesus
-    uart_config_t uart_config = uart_config_init(9600, UART_DATA_8_BITS, 
-        UART_PARITY_DISABLE, UART_STOP_BITS_1, UART_HW_FLOWCTRL_DISABLE);
+    // Jesus
+    uart_config_t uart_config = uart_config_init(9600, UART_DATA_8_BITS,
+                                                 UART_PARITY_DISABLE, UART_STOP_BITS_1, UART_HW_FLOWCTRL_DISABLE);
 
     uart_setup(GPS_UART_NUM, &uart_config, GPS_TXD_PIN, GPS_RXD_PIN, GPS_BUF_SIZE);
-//Aram
+// Aram
+#if DEVICE_ROLE_RECEIVER
     screen_init();
     screen_clear();
+#endif
     lora_config_init();
 
-
-    //Pamela
-    // Crear la tarea para procesar datos GPS
+    // Pamela
+    //  Crear la tarea para procesar datos GPS
     xTaskCreate(gps_task, "gps_task", 4096, NULL, 10, NULL);
 }
