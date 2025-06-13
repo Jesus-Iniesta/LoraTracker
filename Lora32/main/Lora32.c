@@ -14,16 +14,16 @@
 #include "protocol_examples_common.h"
 #include "esp_sleep.h"
 
-//Pamela (Documentar los pines del microcontrolador)
-#define GPS_UART_NUM UART_NUM_2 //Utilizamos el tercer puerto del ESP32, ya que no afecta la consola serial 
-#define GPS_TXD_PIN 12 //Es nuestra entrada al microcontrolador, el cual recibe los datos desde el pin TX del modulo GPS
-#define GPS_RXD_PIN 13 // Es nuestra salida del microcontrolador, el cual envia los datos al pin RX del modulo GPS  
-#define GPS_BUF_SIZE 1024 //tamaño de memoria del gps 1024 bytes
-#define MESSAGE_LEN 240  // Tamaño maximo de un mensaje 240 bytes
+// Pamela (Documentar los pines del microcontrolador)
+#define GPS_UART_NUM UART_NUM_2 // Utilizamos el tercer puerto del ESP32, ya que no afecta la consola serial
+#define GPS_TXD_PIN 12          // Es nuestra entrada al microcontrolador, el cual recibe los datos desde el pin TX del modulo GPS
+#define GPS_RXD_PIN 13          // Es nuestra salida del microcontrolador, el cual envia los datos al pin RX del modulo GPS
+#define GPS_BUF_SIZE 1024       // tamaño de memoria del gps 1024 bytes
+#define MESSAGE_LEN 240         // Tamaño maximo de un mensaje 240 bytes
 
 // jesus
 //  Define el rol del dispositivo: TRANSMITTER o RECEIVER
-#define DEVICE_ROLE_RECEIVER 0 // Cambiar a 0 para el transmisor
+#define DEVICE_ROLE_RECEIVER 1 // Cambiar a 0 para el transmisor
 
 // pamela (Docuemntar el uso de cada variable)
 static const char *TAG = "GPS";
@@ -32,11 +32,12 @@ TaskHandle_t xHandleRXTask;
 int packets = 0;
 int rssi = 0;
 uint8_t msg[MESSAGE_LEN];
+int ack_counter = 0;
 
 // Rutina para poner en bajo consumo el esp32
 void go_to_sleep(uint32_t seconds)
 {
-    esp_sleep_enable_timer_wakeup(10 * 1000000); // 10 segundos (ajusta según necesidad)
+    // esp_sleep_enable_timer_wakeup(seconds * 1000000LL); // 10 segundos (ajusta según necesidad)
     printf("Entrando en deep sleep por %ld segundos...\n", seconds);
     esp_deep_sleep(1000000LL * seconds); // Tiempo en microsegundos
 }
@@ -62,6 +63,37 @@ void screen_print(char *message, int page)
     ssd1306_display_text(&screen, page, message, strlen(message), false);
 }
 
+void confirmar_ack(char *msg, int size)
+{
+    int ack_received = 0;
+    int wait_ms = 30000;
+    int elapsed = 0;
+    while (elapsed < wait_ms)
+    {
+        lora_receive();
+        if (lora_received())
+        {
+            int len_ack = lora_receive_packet((uint8_t *)msg, size);
+            msg[len_ack] = 0;
+            if (strcmp(msg, "ACK") == 0 || size == 3)
+            {
+                ack_received = 1;
+                ack_counter++;
+                char ack_msg[32];
+                snprintf(ack_msg, sizeof(ack_msg), "ACK recibido: %d", ack_counter);
+                screen_print(ack_msg, 2); // Página 0 de la pantalla
+                break;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+        elapsed += 100;
+    }
+    if (!ack_received)
+    {
+        printf("No se recibió ACK\n");
+    }
+}
+
 // Pamela (Junto con la libreria /components/lora/include/lora.h y lora.c)
 void send_msg(char *msg, int size)
 {
@@ -70,7 +102,10 @@ void send_msg(char *msg, int size)
     vTaskSuspend(xHandleRXTask);
     lora_send_packet((uint8_t *)msg, size);
     vTaskResume(xHandleRXTask);
-    vTaskDelay(5);
+    vTaskDelay(20);
+    char ack_buffer[16] = {0};
+    confirmar_ack(ack_buffer, sizeof(ack_buffer));
+    memset(ack_buffer, 0, sizeof(ack_buffer));
 }
 
 // Jesus
@@ -152,6 +187,9 @@ void task_rx(void *p)
                     ESP_LOGI(TAG, "%s", packets_count);
 
                     send_coordinates_to_server(lat, lon);
+
+                    const char *ack_msg = "ACK";
+                    lora_send_packet((uint8_t *)ack_msg, strlen(ack_msg));
 #endif
                 }
                 else
@@ -175,10 +213,10 @@ void lora_config_init()
     printf("Lora config init\n");
     lora_init();
     lora_set_frequency(433e6);
-    lora_set_spreading_factor(10); // Aumentar el SF para mayor alcance
+    lora_set_spreading_factor(11); // Aumentar el SF para mayor alcance
     lora_set_bandwidth(62.5e3);    // Reducir el ancho de banda para mayor sensibilidad
-    lora_set_preamble_length(15);
-    lora_set_tx_power(17); // Configurar la potencia máxima permitida
+    lora_set_coding_rate(8);
+    lora_set_tx_power(20); // Configurar la potencia máxima permitida
     lora_enable_crc();
     xTaskCreate(&task_rx, "task_rx", 4096, NULL, 5, &xHandleRXTask);
     // xTaskCreate(&task_tx, "task_tx", 2048, NULL, 5, NULL);
@@ -262,11 +300,11 @@ void parse_nmea_sentence(const char *line)
             send_msg(message, strlen(message));
 
             // Pon el GPS en standby
-            const char standby_cmd[] = "$PMTK161,0*28\r\n";
-            uart_write_bytes(GPS_UART_NUM, standby_cmd, strlen(standby_cmd));
+            // const char standby_cmd[] = "$PMTK161,0*28\r\n";
+            // uart_write_bytes(GPS_UART_NUM, standby_cmd, strlen(standby_cmd));
 
-            // Deep sleep
-            go_to_sleep(30); // 30 segundos
+            // // Deep sleep
+            // go_to_sleep(30); // 30 segundos
         }
     }
 }
@@ -289,7 +327,7 @@ void gps_task(void *arg)
                 line = strtok(NULL, "\n");
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(40000));
     }
 }
 
@@ -337,11 +375,11 @@ void app_main(void)
                                                  UART_PARITY_DISABLE, UART_STOP_BITS_1, UART_HW_FLOWCTRL_DISABLE);
 
     uart_setup(GPS_UART_NUM, &uart_config, GPS_TXD_PIN, GPS_RXD_PIN, GPS_BUF_SIZE);
-// Aram
-#if DEVICE_ROLE_RECEIVER
+    // Aram
+
     screen_init();
     screen_clear();
-#endif
+
     lora_config_init();
 
     // Pamela
