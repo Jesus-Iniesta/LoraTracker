@@ -298,13 +298,6 @@ void parse_nmea_sentence(const char *line)
             char message[64];
             snprintf(message, sizeof(message), "%.6f,%.6f", lat, lon);
             send_msg(message, strlen(message));
-
-            // Pon el GPS en standby
-            // const char standby_cmd[] = "$PMTK161,0*28\r\n";
-            // uart_write_bytes(GPS_UART_NUM, standby_cmd, strlen(standby_cmd));
-
-            // // Deep sleep
-            // go_to_sleep(30); // 30 segundos
         }
     }
 }
